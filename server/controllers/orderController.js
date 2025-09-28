@@ -1,56 +1,35 @@
+// controllers/orderController.js
 const Order = require('../models/order');
 const User = require('../models/user');
+const { notifyUser } = require('../lib/wsEmitter');
 
-// ---------------- Place Order ----------------
 exports.placeOrder = async (req, res) => {
   try {
-    const userId = req.user._id; // from auth middleware
+    const userId = req.user._id.toString();
     const { restaurantId, deliveryAddress } = req.body;
+    // ...validation and order creation as you already have...
 
-    if (!restaurantId || !deliveryAddress) {
-      return res.status(400).json({ message: 'Restaurant and delivery address are required' });
-    }
+    const order = await new Order({
+      userId, restaurantId, items, totalAmount, finalAmount, status: 'placed', deliveryAddress,
+    }).save();
 
-    const user = await User.findById(userId);
-    if (!user) return res.status(404).json({ message: 'User not found' });
+    await User.updateOne({ _id: userId }, { $set: { cart: [] } });
 
-    if (!user.cart || user.cart.length === 0) {
-      return res.status(400).json({ message: 'No items to place order' });
-    }
-
-    // Map cart to order items
-    const items = user.cart.map((c) => ({
-      dishId: c.dishId,
-      name: c.name,
-      quantity: c.quantity,
-      price: c.price,
-    }));
-
-    const totalAmount = items.reduce((sum, i) => sum + i.price * i.quantity, 0);
-    const finalAmount = totalAmount; // apply discount logic here if needed
-
-    const order = new Order({
-      userId,
-      restaurantId,
-      items,
-      totalAmount,
-      finalAmount,
-      status: 'placed',
-      deliveryAddress,
+    // Emit to user via Redis -> Socket service
+    notifyUser(userId, 'order:placed', {
+      orderId: order._id.toString(),
+      title: 'Order placed 🎉',
+      message: 'Your order has been placed successfully.',
+      placedAt: order.createdAt,
+      amount: finalAmount,
     });
 
-    await order.save();
-
-    // Clear user cart after placing order
-    user.cart = [];
-    await user.save();
-
-    res.status(200).json({ message: 'Order placed successfully', order });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: 'Failed to place order', error: err.message });
+    return res.status(200).json({ message: 'Order placed successfully', order });
+  } catch (e) {
+    return res.status(500).json({ message: 'Failed to place order', error: e.message });
   }
 };
+
 // ---------------- Cancel Order (within 60 sec) ----------------
 exports.cancelOrder = async (req, res) => {
   try {

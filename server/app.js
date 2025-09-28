@@ -300,6 +300,7 @@ app.get('/', (req, res) => {
     }
   });
 });
+app.set('trust proxy', true); 
 
 // ─────────────────────────────
 // API Routes

@@ -1,26 +1,22 @@
-// controllers/userController.js
+// controllers/customerController.js
 const User = require('../models/user');
-const Dish = require("../models/dish");
-const Order=require("../models/order");
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const { generateOTP, getExpiryTime } = require('../utils/otp');
 const { sendEmail } = require('../utils/sendEmail');
-// const { sendSMS } = require('../utils/sendSMS'); // Twilio disabled
 
 const JWT_SECRET = process.env.JWT_SECRET || "supersecurekey";
 
-// ====================== REGISTER ======================
-exports.registerUser = async (req, res) => {
+// ====================== REGISTER CUSTOMER ======================
+exports.registerCustomer = async (req, res) => {
   try {
-    const { name, email, phone, password, role, otpMethod } = req.body;
+    const { name, email, phone, password } = req.body;
 
-    // Check if already exists
     const existingUser = await User.findOne({ $or: [{ email }, { phone }] });
-    if (existingUser && existingUser.isVerified)
-      return res.status(400).json({ message: "User already registered & verified" });
+    if (existingUser && existingUser.isVerified) {
+      return res.status(400).json({ message: "Customer already registered & verified" });
+    }
 
-    // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
     const otp = generateOTP();
 
@@ -28,6 +24,7 @@ exports.registerUser = async (req, res) => {
     if (existingUser) {
       existingUser.otp = otp;
       existingUser.otpExpiresAt = getExpiryTime();
+      existingUser.role = "customer";
       await existingUser.save();
       user = existingUser;
     } else {
@@ -36,26 +33,15 @@ exports.registerUser = async (req, res) => {
         email,
         phone,
         passwordHash: hashedPassword,
-        role,
+        role: "customer",
         otp,
         otpExpiresAt: getExpiryTime()
       });
       await user.save();
     }
 
-    // Send OTP
-    if (otpMethod === "email") {
-      await sendEmail(email, "Your Registration OTP", `Your OTP is: ${otp}`);
-    } 
-    // else if (otpMethod === "sms") {
-    //   // Twilio disabled: for now, just log OTP to console
-    //   console.log(`(DEBUG) Registration OTP for ${phone}: ${otp}`);
-    // } 
-    else {
-      return res.status(400).json({ message: "Invalid OTP method" });
-    }
-
-    res.status(200).json({ message: `OTP sent to your ${otpMethod}` });
+    await sendEmail(email, "Customer Registration OTP", `Your OTP is: ${otp}`);
+    res.status(200).json({ message: "OTP sent to your email" });
 
   } catch (err) {
     console.error(err);
@@ -63,111 +49,60 @@ exports.registerUser = async (req, res) => {
   }
 };
 
-// ====================== VERIFY REGISTER OTP ======================
-exports.verifyOTP = async (req, res) => {
+// ====================== VERIFY CUSTOMER OTP ======================
+exports.verifyCustomerOTP = async (req, res) => {
   try {
     const { emailOrPhone, otp } = req.body;
 
-    const user = await User.findOne({ $or: [{ email: emailOrPhone }, { phone: emailOrPhone }] });
-    if (!user) return res.status(400).json({ message: "User not found" });
+    const user = await User.findOne({ 
+      $or: [{ email: emailOrPhone }, { phone: emailOrPhone }],
+      role: "customer"
+    });
+    if (!user) return res.status(400).json({ message: "Customer not found" });
 
-    if (user.otp !== otp || new Date() > user.otpExpiresAt)
+    if (user.otp !== otp || new Date() > user.otpExpiresAt) {
       return res.status(400).json({ message: "Invalid or expired OTP" });
+    }
 
     user.isVerified = true;
     user.otp = null;
     user.otpExpiresAt = null;
     await user.save();
 
-    const token = jwt.sign({ id: user._id, role: user.role }, JWT_SECRET, { expiresIn: '24h' });
+    const token = jwt.sign({ id: user._id, role: "customer" }, JWT_SECRET, { expiresIn: '24h' });
+    res.status(200).json({ message: "Customer registered & verified", token });
 
-    res.status(200).json({ message: "Account verified & registered", token });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: "Server error" });
   }
 };
 
-// ====================== LOGIN (Generate OTP) ======================
-// exports.loginUser = async (req, res) => {
-//   try {
-//     const { emailOrPhone, password, otpMethod } = req.body;
-
-//     const user = await User.findOne({ $or: [{ email: emailOrPhone }, { phone: emailOrPhone }] });
-//     if (!user || !user.isVerified)
-//       return res.status(400).json({ message: "User not found or not verified" });
-
-//     const isMatch = await bcrypt.compare(password, user.passwordHash);
-//     if (!isMatch) return res.status(400).json({ message: "Invalid credentials" });
-
-//     const otp = generateOTP();
-//     user.otp = otp;
-//     user.otpExpiresAt = getExpiryTime();
-//     await user.save();
-
-//     if (otpMethod === "email") {
-//       await sendEmail(user.email, "Your Login OTP", `Your OTP is: ${otp}`);
-//     } 
-//     // else if (otpMethod === "sms") {
-//     //   // Twilio disabled: log OTP to console
-//     //   console.log(`(DEBUG) Login OTP for ${user.phone}: ${otp}`);
-//     // } 
-//     else {
-//       return res.status(400).json({ message: "Invalid OTP method" });
-//     }
-
-//     res.status(200).json({ message: `Login OTP sent to your ${otpMethod}` });
-
-//   } catch (err) {
-//     console.error(err);
-//     res.status(500).json({ message: "Server error" });
-//   }
-// };
-
-// // ====================== VERIFY LOGIN OTP ======================
-// exports.verifyLoginOTP = async (req, res) => {
-//   try {
-//     const { emailOrPhone, otp } = req.body;
-
-//     const user = await User.findOne({ $or: [{ email: emailOrPhone }, { phone: emailOrPhone }] });
-//     if (!user) return res.status(400).json({ message: "User not found" });
-
-//     if (user.otp !== otp || new Date() > user.otpExpiresAt)
-//       return res.status(400).json({ message: "Invalid or expired OTP" });
-
-//     user.otp = null;
-//     user.otpExpiresAt = null;
-//     await user.save();
-
-//     const token = jwt.sign({ id: user._id, role: user.role }, JWT_SECRET, { expiresIn: '24h' });
-
-//     res.status(200).json({
-//       message: "Login successful",
-//       token,
-//       user: {
-//         id: user._id,
-//         name: user.name,
-//         email: user.email,
-//         phone: user.phone,
-//         role: user.role
-//       }
-//     });
-
-//   } catch (err) {
-//     console.error(err);
-//     res.status(500).json({ message: "Server error" });
-//   }
-// };
-exports.loginUser = async (req, res) => {
+// ====================== LOGIN CUSTOMER (Generate OTP) ======================
+exports.loginCustomer = async (req, res) => {
   try {
-    const { emailOrPhone, password, otpMethod } = req.body;
+    const { emailOrPhone, password } = req.body;
 
-    const user = await User.findOne({ $or: [{ email: emailOrPhone }, { phone: emailOrPhone }] });
-    if (!user || !user.isVerified)
-      return res.status(400).json({ message: "User not found or not verified" });
+    const user = await User.findOne({
+      $or: [{ email: emailOrPhone }, { phone: emailOrPhone }],
+      role: "customer"
+    });
 
-    const isMatch = await bcrypt.compare(password, user.passwordHash);
-    if (!isMatch) return res.status(400).json({ message: "Invalid credentials" });
+    if (!user || !user.isVerified) {
+      return res.status(400).json({ message: "Customer not found or not verified" });
+    }
+
+    // If user has a password, verify it
+    if (user.passwordHash) {
+      if (!password) {
+        return res.status(400).json({ message: "Password is required for this account" });
+      }
+
+      const isMatch = await bcrypt.compare(password, user.passwordHash);
+      if (!isMatch) {
+        return res.status(400).json({ message: "Invalid credentials" });
+      }
+    }
 
     // Generate OTP
     const otp = generateOTP();
@@ -175,64 +110,189 @@ exports.loginUser = async (req, res) => {
     user.otpExpiresAt = getExpiryTime();
     await user.save();
 
-    // Send OTP via chosen method
-    if (otpMethod === "email") {
-      await sendEmail(user.email, "Your Login OTP", `Your OTP is: ${otp}`);
-    } else if (otpMethod === "sms") {
-      // Twilio disabled for now: log OTP to console
-      console.log(`(DEBUG) Login OTP for ${user.phone}: ${otp}`);
-    } else {
-      return res.status(400).json({ message: "Invalid OTP method" });
-    }
+    // Send OTP to email
+    await sendEmail(user.email, "Customer Login OTP", `Your OTP is: ${otp}`);
 
-    // ✅ Return minimal info; token not generated until OTP verification
-    res.status(200).json({ 
-      message: `Login OTP sent to your ${otpMethod}`,
-      userId: user._id 
-    });
+    res.status(200).json({ message: "Login OTP sent to your email" });
 
   } catch (err) {
-    console.error(err);
+    console.error("Login Customer Error:", err);
     res.status(500).json({ message: "Server error" });
   }
 };
 
-// ---------------- OTP Verification ----------------
-exports.verifyLoginOTP = async (req, res) => {
+// ====================== VERIFY CUSTOMER LOGIN OTP ======================
+exports.verifyCustomerLoginOTP = async (req, res) => {
   try {
-    const { userId, otp } = req.body;
+    const { emailOrPhone, otp } = req.body;
 
-    const user = await User.findById(userId);
-    if (!user) return res.status(404).json({ message: "User not found" });
+    const user = await User.findOne({
+      $or: [{ email: emailOrPhone }, { phone: emailOrPhone }],
+      role: "customer"
+    });
 
-    // Check OTP validity
-    if (!user.otp || user.otp !== otp) {
-      return res.status(400).json({ message: "Invalid OTP" });
+    if (!user) {
+      return res.status(400).json({ message: "Customer not found" });
     }
 
-    if (user.otpExpiresAt < new Date()) {
-      return res.status(400).json({ message: "OTP expired" });
+    if (user.otp !== otp || new Date() > user.otpExpiresAt) {
+      return res.status(400).json({ message: "Invalid or expired OTP" });
     }
 
-    // ✅ Generate JWT token after successful OTP verification
-    const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: "7d" });
-
-    // Clear OTP fields
+    // Clear OTP
     user.otp = null;
     user.otpExpiresAt = null;
     await user.save();
 
-    res.status(200).json({ 
-      message: "Login successful",
-      userId: user._id,
-      token 
+    // Generate JWT token
+    const token = jwt.sign({ id: user._id, role: "customer" }, JWT_SECRET, { expiresIn: "24h" });
+
+    res.status(200).json({
+      message: "Customer login successful",
+      token,
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        phone: user.phone,
+        role: "customer"
+      }
     });
 
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "OTP verification failed" });
+    console.error("Verify OTP Error:", err);
+    res.status(500).json({ message: "Server error" });
   }
 };
+exports.requestPasswordReset = async (req, res) => {
+  try {
+    const { emailOrPhone } = req.body;
+
+    const user = await User.findOne({
+      $or: [{ email: emailOrPhone }, { phone: emailOrPhone }],
+      role: "customer",
+      isVerified: true
+    });
+
+    // For security: respond the same even if not found
+    if (!user) {
+      return res.status(200).json({ message: "If the account exists, we've sent an OTP to the registered email." });
+    }
+
+    const otp = generateOTP();
+    user.resetOtp = otp;
+    user.resetOtpExpiresAt = getExpiryTime(); // e.g., 10 mins
+    await user.save();
+
+    await sendEmail(user.email, "Password Reset OTP", `Your OTP is: ${otp}`);
+
+    res.status(200).json({ message: "If the account exists, we've sent an OTP to the registered email." });
+  } catch (err) {
+    console.error("requestPasswordReset error:", err);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
+/**
+ * Forgot Password: Verify OTP -> returns short-lived resetToken
+ * Body: { emailOrPhone, otp }
+ */
+exports.verifyPasswordResetOTP = async (req, res) => {
+  try {
+    const { emailOrPhone, otp } = req.body;
+
+    const user = await User.findOne({
+      $or: [{ email: emailOrPhone }, { phone: emailOrPhone }],
+      role: "customer",
+      isVerified: true
+    });
+    if (!user) return res.status(400).json({ message: "Invalid request" });
+
+    if (!user.resetOtp || !user.resetOtpExpiresAt || user.resetOtp !== otp || new Date() > user.resetOtpExpiresAt) {
+      return res.status(400).json({ message: "Invalid or expired OTP" });
+    }
+
+    // Invalidate the OTP and issue a short-lived reset token (15 min)
+    user.resetOtp = null;
+    user.resetOtpExpiresAt = null;
+    await user.save();
+
+    const resetToken = jwt.sign({ id: user._id, purpose: "password_reset" }, JWT_SECRET, { expiresIn: "15m" });
+
+    res.status(200).json({ message: "OTP verified", resetToken });
+  } catch (err) {
+    console.error("verifyPasswordResetOTP error:", err);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
+/**
+ * Forgot Password: Set new password using resetToken
+ * Body: { resetToken, newPassword }
+ */
+exports.resetPasswordWithToken = async (req, res) => {
+  try {
+    const { resetToken, newPassword } = req.body;
+    if (!resetToken || !newPassword) {
+      return res.status(400).json({ message: "resetToken and newPassword are required" });
+    }
+
+    let payload;
+    try {
+      payload = jwt.verify(resetToken, JWT_SECRET);
+    } catch {
+      return res.status(400).json({ message: "Invalid or expired token" });
+    }
+
+    if (payload.purpose !== "password_reset") {
+      return res.status(400).json({ message: "Invalid token purpose" });
+    }
+
+    const user = await User.findById(payload.id);
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    user.passwordHash = await bcrypt.hash(newPassword, 10);
+    await user.save();
+
+    res.status(200).json({ message: "Password updated successfully" });
+  } catch (err) {
+    console.error("resetPasswordWithToken error:", err);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
+/**
+ * Change Password (authenticated)
+ * Body: { currentPassword, newPassword }
+ * Headers: Authorization: Bearer <token>
+ */
+exports.changePassword = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const { currentPassword, newPassword } = req.body;
+
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ message: "currentPassword and newPassword are required" });
+    }
+
+    const user = await User.findById(userId);
+    if (!user?.passwordHash) {
+      return res.status(400).json({ message: "Password change not allowed for this account" });
+    }
+
+    const ok = await bcrypt.compare(currentPassword, user.passwordHash);
+    if (!ok) return res.status(400).json({ message: "Current password is incorrect" });
+
+    user.passwordHash = await bcrypt.hash(newPassword, 10);
+    await user.save();
+
+    res.status(200).json({ message: "Password changed successfully" });
+  } catch (err) {
+    console.error("changePassword error:", err);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
 
 // ====================== GET ALL CUSTOMERS ======================
 exports.getAllUserDetails = async (req, res) => {
