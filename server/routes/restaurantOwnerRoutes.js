@@ -128,16 +128,12 @@ const debugRequest = (req, res, next) => {
   next();
 };
 
-// Authentication routes (public)
 router.post('/register', restaurantOwnerController.registerRestaurantOwner);
 router.post('/verify-otp', restaurantOwnerController.verifyRestaurantOwnerOTP);
 router.post('/login', restaurantOwnerController.loginRestaurantOwner);
 router.post('/verify-login-otp', restaurantOwnerController.verifyRestaurantOwnerLoginOTP);
 
-// Restaurant management routes (protected - owner only)
 
-// Get all restaurants owned by current user
-// GET /api/restaurant-owner/restaurants
 router.get(
   '/restaurants',
   authMiddleware,
@@ -145,8 +141,6 @@ router.get(
   restaurantOwnerController.getMyRestaurants
 );
 
-// Create new restaurant
-// POST /api/restaurant-owner/restaurants
 router.post(
   '/restaurants',
   debugRequest,
