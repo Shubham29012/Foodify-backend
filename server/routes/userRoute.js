@@ -1,4 +1,3 @@
-// routes/customerRoutes.js  (the file you pasted at the bottom)
 const express = require('express');
 const router = express.Router();
 
@@ -27,7 +26,7 @@ const {
   verifyPasswordResetOTP,
   resetPasswordWithToken,
   changePassword,
-} = require('../controllers/userController'); // ensure this matches your file name
+} = require('../controllers/userController'); // keep this consistent with your file name
 
 const { placeOrder, cancelOrder } = require('../controllers/orderController');
 const { authMiddleware, customerMiddleware } = require('../middleware/auth');
@@ -39,53 +38,198 @@ const {
 
 const { requireTurnstile } = require('../middleware/turnstile');
 
-// ------------------- Auth/User Routes -------------------
-router.post('/register', registerLimiter, otpSendLimiter, registerCustomer);
+// ---- Joi validator + schemas ----
+const { validate } = require('../middleware/validate');
+const schemas = require('../validation/userSchemas');
 
-// Verify registration OTP
-router.post('/verify-otp', verifyOtpLimiter, verifyCustomerOTP);
+// ------------------- Auth/User Routes -------------------
+router.post(
+  '/register',
+  registerLimiter,
+  otpSendLimiter,
+  validate({ body: schemas.registerCustomerBody }),
+  registerCustomer
+);
+
+router.post(
+  '/verify-otp',
+  verifyOtpLimiter,
+  validate({ body: schemas.verifyCustomerOtpBody }),
+  verifyCustomerOTP
+);
 
 // Login (validates password if present) + sends OTP
-// 🔒 Protect with Turnstile to mitigate bot/DDOS login traffic
-router.post('/login', requireTurnstile, otpSendLimiter, loginCustomer);
+router.post(
+  '/login',
+  requireTurnstile,
+  otpSendLimiter,
+  validate({ body: schemas.loginCustomerBody }),
+  loginCustomer
+);
 
-// Verify login OTP
-router.post('/verify-login-otp', verifyOtpLimiter, verifyCustomerLoginOTP);
+router.post(
+  '/verify-login-otp',
+  verifyOtpLimiter,
+  validate({ body: schemas.verifyLoginOtpBody }),
+  verifyCustomerLoginOTP
+);
 
-router.get('/getcustomerdetails', authMiddleware, customerMiddleware, getAllUserDetails);
+router.get(
+  '/getcustomerdetails',
+  authMiddleware,
+  customerMiddleware,
+  getAllUserDetails
+);
 
-// ------------------- Forgot Password (Turnstile-protected where users can spam) -------------------
-// Step 1: request OTP (protected by Turnstile)
-router.post('/forgot-password/request', requireTurnstile, otpSendLimiter, requestPasswordReset);
-// Step 2: verify OTP -> returns short-lived resetToken
-router.post('/forgot-password/verify', verifyOtpLimiter, verifyPasswordResetOTP);
-// Step 3: set new password with resetToken
-router.post('/forgot-password/reset', resetPasswordWithToken);
+// ------------------- Forgot Password -------------------
+router.post(
+  '/forgot-password/request',
+  requireTurnstile,
+  otpSendLimiter,
+  validate({ body: schemas.requestPasswordResetBody }),
+  requestPasswordReset
+);
 
-// Logged-in change password
-router.post('/change-password', authMiddleware, customerMiddleware, changePassword);
+router.post(
+  '/forgot-password/verify',
+  verifyOtpLimiter,
+  validate({ body: schemas.verifyPasswordResetOtpBody }),
+  verifyPasswordResetOTP
+);
+
+router.post(
+  '/forgot-password/reset',
+  validate({ body: schemas.resetPasswordWithTokenBody }),
+  resetPasswordWithToken
+);
+
+router.post(
+  '/change-password',
+  authMiddleware,
+  customerMiddleware,
+  validate({ body: schemas.changePasswordBody }),
+  changePassword
+);
 
 // ------------------- Favourites Routes -------------------
-router.post('/favourites/restaurant', authMiddleware, customerMiddleware, addFavouritesRestaurant);
-router.delete('/favourites/restaurant', authMiddleware, customerMiddleware, removeFavouriteRestaurant);
-router.get('/favourites/restaurants', authMiddleware, customerMiddleware, getFavouriteRestaurants);
-router.post('/favourites/restaurant/check', authMiddleware, customerMiddleware, isRestaurantFavourite);
+router.post(
+  '/favourites/restaurant',
+  authMiddleware,
+  customerMiddleware,
+  validate({ body: schemas.addFavouriteRestaurantBody }),
+  addFavouritesRestaurant
+);
+
+router.delete(
+  '/favourites/restaurant',
+  authMiddleware,
+  customerMiddleware,
+  validate({ body: schemas.removeFavouriteRestaurantBody }),
+  removeFavouriteRestaurant
+);
+
+router.get(
+  '/favourites/restaurants',
+  authMiddleware,
+  customerMiddleware,
+  getFavouriteRestaurants
+);
+
+router.post(
+  '/favourites/restaurant/check',
+  authMiddleware,
+  customerMiddleware,
+  validate({ body: schemas.checkRestaurantFavouriteBody }),
+  isRestaurantFavourite
+);
 
 // Dishes
-router.post('/favourites/dish', authMiddleware, customerMiddleware, addFavouritesDish);
-router.delete('/favourites/dish', authMiddleware, customerMiddleware, removeFavouriteDish);
-router.get('/favourites/dishes', authMiddleware, customerMiddleware, getFavouriteDishes);
-router.post('/favourites/dish/check', authMiddleware, customerMiddleware, isDishFavourite);
+router.post(
+  '/favourites/dish',
+  authMiddleware,
+  customerMiddleware,
+  validate({ body: schemas.addFavouriteDishBody }),
+  addFavouritesDish
+);
+
+router.delete(
+  '/favourites/dish',
+  authMiddleware,
+  customerMiddleware,
+  validate({ body: schemas.removeFavouriteDishBody }),
+  removeFavouriteDish
+);
+
+router.get(
+  '/favourites/dishes',
+  authMiddleware,
+  customerMiddleware,
+  getFavouriteDishes
+);
+
+router.post(
+  '/favourites/dish/check',
+  authMiddleware,
+  customerMiddleware,
+  validate({ body: schemas.checkDishFavouriteBody }),
+  isDishFavourite
+);
 
 // ------------------- Cart Routes -------------------
-router.post('/cart/add', authMiddleware, customerMiddleware, addToCart);
-router.get('/cart', authMiddleware, customerMiddleware, getItemsFromCart);
-router.put('/cart/update', authMiddleware, customerMiddleware, updateCartQuantity);
-router.delete('/cart/remove', authMiddleware, customerMiddleware, removeCartItem);
-router.delete('/cart/clear', authMiddleware, customerMiddleware, clearCart);
+router.post(
+  '/cart/add',
+  authMiddleware,
+  customerMiddleware,
+  validate({ body: schemas.addToCartBody }),
+  addToCart
+);
+
+router.get(
+  '/cart',
+  authMiddleware,
+  customerMiddleware,
+  getItemsFromCart
+);
+
+router.put(
+  '/cart/update',
+  authMiddleware,
+  customerMiddleware,
+  validate({ body: schemas.updateCartQuantityBody }),
+  updateCartQuantity
+);
+
+router.delete(
+  '/cart/remove',
+  authMiddleware,
+  customerMiddleware,
+  validate({ body: schemas.removeCartItemBody }),
+  removeCartItem
+);
+
+router.delete(
+  '/cart/clear',
+  authMiddleware,
+  customerMiddleware,
+  clearCart
+);
 
 // ------------------- Order Routes -------------------
-router.post('/orders/place', authMiddleware, customerMiddleware, placeOrder);
-router.post('/orders/:orderId/cancel', authMiddleware, customerMiddleware, cancelOrder);
+// If you define a body contract for placeOrder later, plug it here:
+router.post(
+  '/orders/place',
+  authMiddleware,
+  customerMiddleware,
+  // validate({ body: schemas.placeOrderBody }),
+  placeOrder
+);
+
+router.post(
+  '/orders/:orderId/cancel',
+  authMiddleware,
+  customerMiddleware,
+  validate({ params: schemas.cancelOrderParams }),
+  cancelOrder
+);
 
 module.exports = router;
